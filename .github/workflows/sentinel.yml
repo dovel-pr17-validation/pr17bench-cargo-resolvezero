@@ -1,0 +1,123 @@
+# Sentinel — hourly: probe the edge; if a Fly-host zombie is detected,
+# recreate that region per the runbook (readme §7). Failure notifications are
+# GitHub's built-in (email on failed scheduled run) — no custom alerting.
+name: sentinel
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: install dnsutils (dig)
+        run: sudo apt-get update && sudo apt-get install -y dnsutils
+      - name: probe + self-heal
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          FLYBIN=flyctl
+          command -v flyctl >/dev/null 2>&1 || FLYBIN=fly
+
+          healthz=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://resolvezero-edge.fly.dev/healthz || echo 000)
+          echo "healthz=$healthz"
+
+          json=$($FLYBIN machines list -a resolvezero-edge --json)
+          echo "$json" | jq -r '.[] | [.id, .region, .image_ref.tag, (.checks[0].status // "none"), .host_status] | @tsv'
+
+          bad=$($FLYBIN machines list -a resolvezero-edge --json | jq -r '
+            .[]
+            | select(
+                (.host_status // "ok") != "ok"
+                or ((.checks // []) | length == 0)
+                or ((.checks // []) | any(.status == "error"))
+              )
+            | "\(.id)|\(.region)"')
+          for row in $bad; do
+            id="${row%%|*}"
+            region="${row##*|}"
+            echo "unhealthy machine: $id ($region) — recreating via scale count"
+            $FLYBIN machine destroy "$id" -a resolvezero-edge --force || true
+            $FLYBIN scale count 1 --region "$region" -a resolvezero-edge --yes || true
+          done
+
+          if [ -n "$bad" ] || [ "$healthz" != "204" ]; then
+            sleep 60
+            healthz2=$(curl -s -o /dev/null -w '%{http_code}' -m 20 https://resolvezero-edge.fly.dev/healthz || echo 000)
+            echo "post-op healthz=$healthz2"
+            if [ "$healthz2" != "204" ]; then
+              echo "::error::edge incident — healthz=$healthz2, unchecked auto-recovery"
+              exit 1  # GitHub will notify (email) on workflow failure
+            fi
+          fi
+          echo "all healthy"
+
+          # App-level probe: readiness + real DNS listeners. A failed scheduled
+          # run is the alert (GitHub email); no separate monitoring stack.
+          ready=$(curl -sS -m 20 -o /tmp/rz-ready.json -w '%{http_code}' https://resolvezero-edge.fly.dev/readyz || echo 000)
+          echo "readyz=$ready $(cat /tmp/rz-ready.json 2>/dev/null)"
+          if [ "$ready" != "200" ] || ! jq -e '.ok == true and .dns53Bound == true and .blocklistsLoaded == true' /tmp/rz-ready.json >/dev/null; then
+            echo "::error::edge readiness failed"
+            exit 1
+          fi
+          age=$(jq -r '.configPollAgeMs // 0' /tmp/rz-ready.json)
+          failed=$(jq -r '(.failedBlocklists // []) | length' /tmp/rz-ready.json)
+          if [ "$age" -gt 300000 ]; then
+            echo "::error::config poll age ${age}ms > 300s"
+            exit 1
+          fi
+          if [ "$failed" -gt 0 ]; then
+            echo "::error::${failed} blocklist(s) failed on the last sync"
+            exit 1
+          fi
+          rss=$(jq -r '.rssMb // 0' /tmp/rz-ready.json)
+          limit=$(jq -r '.memoryLimitMb // 0' /tmp/rz-ready.json)
+          echo "rss=${rss}MB / ${limit}MB"
+          if [ "$limit" -gt 0 ] && [ $((rss * 100 / limit)) -ge 85 ]; then
+            echo "::error::edge rss ${rss}MB is >=85% of ${limit}MB — resize the machine or investigate the last sync"
+            exit 1
+          fi
+          # DNS ingress probe. UDP is lossy by nature: a single packet to a
+          # single anycast IP produced false alarms. Try every edge IP twice and
+          # only alert when *no* attempt answers.
+          edge_ips=$(dig +short resolvezero-edge.fly.dev A | tr -d '\r' | sort -u)
+          [ -n "$edge_ips" ] || edge_ips="37.16.24.24
+          37.16.24.46
+          37.16.24.212"
+          echo "edge ips: $(echo "$edge_ips" | tr '\n' ' ')"
+
+          probe_dns() {
+            proto=$1
+            args=""
+            [ "$proto" = "tcp" ] && args="+tcp"
+            ok=0
+            for ip in $edge_ips; do
+              for attempt in 1 2; do
+                out=$(dig +time=4 +tries=1 $args example.com @"$ip" 2>&1 || true)
+                line=$(echo "$out" | grep -m1 'status:')
+                if [ -n "$line" ]; then
+                  echo "${proto} 53 @${ip} attempt ${attempt}: ${line}"
+                  ok=$((ok + 1))
+                  break
+                fi
+                echo "${proto} 53 @${ip} attempt ${attempt}: no answer"
+                sleep 1
+              done
+            done
+            [ "$ok" -gt 0 ]
+          }
+
+          for proto in udp tcp; do
+            if ! probe_dns "$proto"; then
+              echo "::error::${proto} 53 did not answer from any edge IP"
+              echo "--- edge metrics (drops) ---"
+              curl -sS -m 15 https://resolvezero-edge.fly.dev/metrics \
+                | grep -Ei 'drop|rate.?limit' | head -20 || true
+              exit 1
+            fi
+          done

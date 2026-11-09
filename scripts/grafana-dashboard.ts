@@ -1,0 +1,142 @@
+/**
+ * Grafana-side dashboard JSON for the Fly metrics + edge rz_* families.
+ * Imported via Grafana → Dashboards → New → Import (paste JSON or URL).
+ * Cross-references: Fly's built-in Instance panels (CPU/RSS) live in the
+ * "Fly Instance" dashboard the user already has; this file covers our app
+ * metrics so the two together = full picture.
+ *
+ * Panels:
+ *   1. Queries by outcome (rz_queries_total)         [timeseries]
+ *   2. Blocked query rate                            [timeseries]
+ *   3. Upstream RTT histogram (p50/p95/p99 approx)   [timeseries, heatmap-ish]
+ *   4. Dropped packets (rz_dropped_total) by reason  [timeseries]
+ *   5. DNS cache entries (rz_dns_cache_entries)      [timeseries]
+ *   6. Rules live gauges (rz_rules)                  [timeseries]
+ *
+ * NOTE: since metrics are scrape-based counters, rate() windows assume a
+ * 15s/30s scrape interval; adjust per your Grafana resolution.
+ */
+
+export const GRAFANA_DASHBOARD = {
+  title: "ResolveZero Edge — application metrics",
+  uid: "rz-edge-app",
+  schemaVersion: 39,
+  version: 1,
+  refresh: "30s",
+  time: { from: "now-3h", to: "now" },
+  panels: [
+    {
+      id: 1,
+      title: "Queries by outcome",
+      type: "timeseries",
+      gridPos: { h: 8, w: 12, x: 0, y: 0 },
+      fieldConfig: {
+        defaults: { unit: "ops", custom: { lineWidth: 1, fillOpacity: 15 } },
+        overrides: [],
+      },
+      targets: [
+        {
+          expr: 'sum by (action) (rate(rz_queries_total{instance=~"$machine"}[5m]))',
+          legendFormat: "{{action}}",
+        },
+      ],
+    },
+    {
+      id: 2,
+      title: "Upstream RTT histogram",
+      type: "timeseries",
+      gridPos: { h: 8, w: 12, x: 12, y: 0 },
+      fieldConfig: {
+        defaults: { unit: "ms", custom: { lineWidth: 1, fillOpacity: 5 } },
+        overrides: [],
+      },
+      targets: [
+        {
+          expr: 'sum by (le) (rate(rz_query_rtt_ms_bucket{instance=~"$machine"}[5m]))',
+          legendFormat: "le={{le}}",
+          instantFormat: "series",
+        },
+        {
+          expr: 'sum(rate(rz_query_rtt_ms_sum{instance=~"$machine"}[5m])) / sum(rate(rz_query_rtt_ms_count{instance=~"$machine"}[5m]))',
+          legendFormat: "mean",
+        },
+      ],
+    },
+    {
+      id: 3,
+      title: "Dropped packets by reason",
+      type: "timeseries",
+      gridPos: { h: 8, w: 12, x: 0, y: 8 },
+      fieldConfig: {
+        defaults: { unit: "ops", custom: { lineWidth: 1, fillOpacity: 25 } },
+        overrides: [
+          {
+            match: "unauthorized_source",
+            properties: [{ id: "color", value: { fixedColor: "red", mode: "fixed" } }],
+          },
+        ],
+      },
+      targets: [
+        {
+          expr: 'sum by (reason) (rate(rz_dropped_total{instance=~"$machine"}[5m]))',
+          legendFormat: "{{reason}}",
+        },
+      ],
+    },
+    {
+      id: 4,
+      title: "DNS cache entries",
+      type: "timeseries",
+      gridPos: { h: 8, w: 6, x: 12, y: 8 },
+      fieldConfig: { defaults: { unit: "short" }, overrides: [] },
+      targets: [
+        {
+          expr: 'rz_dns_cache_entries{instance=~"$machine"}',
+          legendFormat: "entries",
+        },
+      ],
+    },
+    {
+      id: 5,
+      title: "Rules loaded (profiles from DB)",
+      type: "timeseries",
+      gridPos: { h: 8, w: 6, x: 18, y: 8 },
+      fieldConfig: { defaults: { unit: "short" }, overrides: [] },
+      targets: [
+        {
+          expr: 'rz_rules{instance=~"$machine"}',
+          legendFormat: "rules",
+        },
+      ],
+    },
+    {
+      id: 6,
+      title: "Remote blocklist catalog tables per machine",
+      type: "stat",
+      gridPos: { h: 4, w: 6, x: 12, y: 16 },
+      fieldConfig: { defaults: { unit: "short" }, overrides: [] },
+      targets: [{ expr: "rz_remote_list_tables", legendFormat: "tables" }],
+    },
+    {
+      id: 7,
+      title: "Remote blocklist rules (all lists, sum per machine)",
+      type: "stat",
+      gridPos: { h: 4, w: 6, x: 18, y: 16 },
+      fieldConfig: { defaults: { unit: "short" }, overrides: [] },
+      targets: [{ expr: "rz_remote_list_rules", legendFormat: "entries" }],
+    },
+  ],
+  templating: {
+    list: [
+      {
+        name: "machine",
+        label: "machine",
+        type: "query",
+        query: "label_values(rz_cpu_percent, instance)",
+        refresh: 1,
+            includeAll: true,
+        multi: false,
+      },
+    ],
+  },
+} as const;

@@ -1,0 +1,350 @@
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/archivo/standard.css";
+@import "tailwindcss";
+
+:root {
+  --ink: #0b0b0a;
+  --ink-2: #171716;
+  --paper: #faf9f7;
+  --paper-2: #f1efea;
+  --card: #ffffff;
+  --sage: #f1efea;
+  --sage-2: #e6e3dc;
+  --line: rgba(11, 11, 10, 0.08);
+  --line-strong: rgba(11, 11, 10, 0.16);
+  --muted: #6f6a62;
+  --brand: #ff4d00;
+  --brand-strong: #e64500;
+  --brand-soft: #fff0e8;
+  --accent: #d92d20;
+  --accent-soft: #fdeceb;
+  --green: #0f7a4f;
+  --green-soft: #e7f2ec;
+  --lime: #c6f24e;
+  --danger: #d92d20;
+  --warning: #a56a16;
+  --sidebar: #0b0b0a;
+  --sidebar-2: #161514;
+  --sidebar-text: #f4f1ec;
+  --sidebar-muted: #a6a099;
+  --radius: 10px;
+  --radius-sm: 8px;
+  --shadow-card: 0 1px 2px rgba(11, 11, 10, 0.04);
+  --shadow-pop: 0 12px 32px rgba(11, 11, 10, 0.1);
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Archivo Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-sans);
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+/*
+ * Radix overlays (Select, DropdownMenu) lock body scroll and compensate for
+ * the removed scrollbar by adding a body margin, measured from the window.
+ * On platforms with classic scrollbars that produces a one-scrollbar-wide
+ * layout jump when the menu opens. Reserve the viewport gutter instead, and
+ * drop the compensation so the layout is identical whether the scrollbar is
+ * visible or not.
+ */
+@supports (scrollbar-gutter: stable) {
+  html {
+    scrollbar-gutter: stable;
+  }
+
+  html body[data-scroll-locked] {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  font-weight: 700;
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--brand) 28%, transparent);
+  color: var(--ink);
+}
+
+/* Tailwind v4 preflight leaves buttons on the default arrow cursor. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+/* Form controls use the inner bottom accent, not the global focus ring. */
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.rz-input:focus-visible {
+  outline: none;
+}
+
+@layer components {
+.rz-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.rz-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rz-eyebrow::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  background: var(--brand);
+}
+
+.rz-display {
+  font-family: var(--font-display);
+  font-stretch: 118%;
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.92;
+  text-transform: uppercase;
+}
+
+.rz-font-display {
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.rz-hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(2.3rem, 3.6vw, 3.2rem);
+  font-stretch: 100%;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
+  color: var(--sidebar-text);
+}
+
+.rz-page-title {
+  font-family: var(--font-display);
+  font-size: clamp(1.6rem, 2.6vw, 2.15rem);
+  font-stretch: 100%;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.rz-page-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+
+.rz-section-title {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.rz-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.rz-input {
+  width: 100%;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink);
+  outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.rz-input:focus {
+  border-color: var(--brand);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand) 14%, transparent);
+}
+
+.rz-input::placeholder {
+  color: color-mix(in oklab, var(--muted) 72%, transparent);
+}
+
+.rz-field-label {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rz-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  padding: 5px 9px;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0;
+  color: var(--muted);
+  background: var(--card);
+}
+
+.rz-pill-positive {
+  border-color: color-mix(in oklab, var(--green) 30%, transparent);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.rz-pill-warning {
+  border-color: #dfcfab;
+  background: #fbf6e9;
+  color: var(--warning);
+}
+
+.rz-pill-danger {
+  border-color: color-mix(in oklab, var(--danger) 26%, transparent);
+  background: var(--accent-soft);
+  color: var(--danger);
+}
+
+.rz-pill-accent {
+  border-color: color-mix(in oklab, var(--brand) 30%, transparent);
+  background: var(--brand-soft);
+  color: #9a3007;
+}
+
+.rz-dot-grid {
+  background-image: radial-gradient(color-mix(in oklab, var(--ink) 10%, transparent) 1px, transparent 1px);
+  background-size: 16px 16px;
+  -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+  mask-image: linear-gradient(to bottom, black, transparent);
+}
+
+.rz-hairline {
+  border-color: var(--line);
+}
+}
+
+@media (max-width: 1023px) {
+  body {
+    background: var(--paper);
+  }
+}
+
+/*
+ * Radix menu/select items get focus programmatically for keyboard navigation.
+ * The global :focus-visible ring draws an orange box that is clipped to two
+ * horizontal lines inside overflow-hidden menus, so suppress it there: the
+ * highlighted background is the affordance.
+ */
+[role="menuitem"]:focus-visible,
+[role="menuitemradio"]:focus-visible,
+[role="menuitemcheckbox"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: none;
+}
+
+/*
+ * Mesh + grain surface (dark cards and editorial hero panels).
+ * The gradient is layered radial washes from the brand palette; the grain is
+ * a tiling feTurbulence SVG (desaturated, soft-light) so it stays sharp at any
+ * DPR without shipping a bitmap. The pseudo-element sits at z-index:-1 inside
+ * an isolated stacking context: visible above the background, never above the
+ * content, and it does not fight Tailwind `absolute` on children.
+ */
+.rz-mesh {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(115% 135% at 8% 0%, rgba(255, 77, 0, 0.6) 0%, rgba(255, 77, 0, 0) 58%),
+    radial-gradient(95% 115% at 94% 6%, rgba(217, 45, 32, 0.55) 0%, rgba(217, 45, 32, 0) 62%),
+    radial-gradient(130% 120% at 50% 118%, rgba(198, 242, 78, 0.18) 0%, rgba(198, 242, 78, 0) 56%),
+    linear-gradient(155deg, #2b1a11 0%, var(--ink) 54%, #1b110b 100%);
+}
+
+.rz-mesh::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23g)' opacity='0.65'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}

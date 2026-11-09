@@ -1,0 +1,22 @@
+[Unit]
+Description=ResolveZero local DNS-to-DoH agent (Rust)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/resolvezero-agent.env
+ExecStart=/usr/local/bin/resolvezero-agent
+Restart=always
+RestartSec=2
+# Port 53 requires root or CAP_NET_BIND_SERVICE.
+User=root
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/resolvezero-agent
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,46 @@
+# Rust edge: format, lint, tests, and dependency advisory check.
+name: edge-rust
+
+on:
+  push:
+    paths:
+      - "apps/edge-rust/**"
+      - ".github/workflows/edge-rust.yml"
+  pull_request:
+    paths:
+      - "apps/edge-rust/**"
+      - ".github/workflows/edge-rust.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/edge-rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/edge-rust
+      - name: format
+        run: cargo fmt --check
+      - name: clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: test
+        run: cargo test
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-audit
+      - name: cargo audit
+        run: cargo audit --file apps/edge-rust/Cargo.lock

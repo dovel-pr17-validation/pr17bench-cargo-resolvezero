@@ -1,0 +1,46 @@
+# Temporary Rust-edge canary: DoH only (no public DNS IPs). Not production.
+app = "resolvezero-edge-rust"
+primary_region = "fra"
+kill_timeout = 15
+
+[build]
+  dockerfile = "Dockerfile"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "1gb"
+
+[env]
+  PORT = "8080"
+  DNS_PORT = "53"
+  METRICS_PORT = "9091"
+  LOG_LEVEL = "info"
+  ARTIFACT_PREFIX = "artifacts"
+  # DoH-only canary: no UDP service, so bind a normal socket inside the VM.
+  UDP_BIND = "0.0.0.0"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+    method = "GET"
+    path = "/healthz"
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"
+    method = "GET"
+    path = "/readyz"
+
+[metrics]
+  port = 9091
+  path = "/metrics"

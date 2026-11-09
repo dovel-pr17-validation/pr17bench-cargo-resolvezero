@@ -1,0 +1,13 @@
+import { encode, decode } from "dns-packet";
+import { rawClient } from "@resolvezero/db/client";
+const P = "55eee5e7-b98f-4091-b080-3def0ab477b9";
+const q = encode({ id: 1, type: "query", flags: 0x0100, questions: [{ name: "adopt-probe.com", type: "A" }] });
+const dns64 = Buffer.from(q).toString("base64url");
+const bare = await fetch(`https://resolvezero-edge.fly.dev/v1/${P}?dns=${dns64}`);
+console.log("bare path (no token):", bare.status, "(404 expected)");
+const client = rawClient();
+const row = (await client`SELECT doh_token FROM profiles WHERE id = ${P} LIMIT 1`)[0];
+const r = await fetch(`https://resolvezero-edge.fly.dev/v1/${P}/${row.doh_token}?dns=${dns64}`);
+console.log("tokened path:", r.status, "(200 expected)");
+await client.end();
+process.exit(0);

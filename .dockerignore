@@ -1,0 +1,14 @@
+.git
+.github
+**/node_modules
+**/dist
+**/target
+agent-rust
+**/*.md
+!README.md
+.env
+.env.*
+!.env.example
+.github
+CODE_REVIEW_*.md
+progress.md

@@ -1,0 +1,16 @@
+# Rust edge production image (root build context).
+FROM rust:1.99-bookworm AS build
+WORKDIR /app
+COPY apps/edge-rust/Cargo.toml apps/edge-rust/Cargo.lock ./
+COPY apps/edge-rust/src ./src
+RUN cargo build --release --locked
+
+FROM debian:bookworm-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=build /app/target/release/resolvezero-edge /usr/local/bin/resolvezero-edge
+ENV HOME=/tmp
+EXPOSE 8080 9091 53 53/udp 853
+# Binds 53/853 as root, then drops to UID/GID 1000 (checked).
+CMD ["/usr/local/bin/resolvezero-edge"]

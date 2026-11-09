@@ -1,0 +1,45 @@
+# Compile blocklists into content-addressed artifacts and publish them to E2.
+# Manual only + double-gated: it rewrites artifact_hash and bumps
+# blocklist_version, which makes every edge reload its list catalog.
+name: artifacts
+
+on:
+  schedule:
+    # Refresh the curated catalog every 6 hours; jitter avoids lockstep with list hosts.
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    if: vars.ARTIFACTS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: build compiler
+        run: cargo build --release --bin rz-compile --manifest-path apps/edge-rust/Cargo.toml
+      - name: compile + publish
+        env:
+          # Admin URL: the script updates profile_blocklists and rule_artifacts.
+          DATABASE_URL: ${{ secrets.DATABASE_URL_ADMIN }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_REGION: ${{ secrets.S3_REGION }}
+          S3_BUCKET: ${{ secrets.S3_BUCKET }}
+          S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
+          S3_SECRET_ACCESS_KEY: ${{ secrets.S3_SECRET_ACCESS_KEY }}
+          ARTIFACT_PREFIX: ${{ vars.ARTIFACT_PREFIX || 'artifacts' }}
+          RZ_COMPILE: apps/edge-rust/target/release/rz-compile
+        run: pnpm exec tsx apps/edge/scripts/artifacts.ts --all

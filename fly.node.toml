@@ -1,0 +1,70 @@
+# Node runtime staging app — separate app/IP from resolvezero-edge.
+# Deploy: fly deploy --config fly.node.toml --ha=false   (staging runs 1 machine)
+app = "resolvezero-edge-staging"
+primary_region = "fra"
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile"
+  [build.args]
+    ENTRY = "apps/edge/src/index.ts"
+
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 1
+
+[env]
+  PORT = "8080"
+  LOG_LEVEL = "info"
+  CONFIG_POLL_MS = "5000"
+  S3_LOG_PREFIX = "node-test-logs"
+  S3_FLUSH_MINUTES = "1"
+  # Staging shares the production DB; never run retention prune from here.
+  PRUNE_ENABLED = "0"
+
+[vm]
+  cpu_kind = "shared"
+  cpus = 1
+  memory = "512mb"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"
+  auto_start_machines = false
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "120s"
+    method = "GET"
+    path = "/readyz"
+
+[metrics]
+  port = 9091
+  path = "/metrics"
+  processes = ["app"]
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 53
+  [[services.ports]]
+    port = 53
+    handlers = ["proxy_proto"]
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "2s"
+
+[[services]]
+  protocol = "udp"
+  internal_port = 53
+  [[services.ports]]
+    port = 53

@@ -1,0 +1,114 @@
+# resolvezero edge — Fly.io deployment
+# Multi-region: deploy per region with scripts/deploy.sh (fly deploy --region);
+# every region runs the same image and joins the anycast IPv4 automatically.
+# primary_region = fra (Frankfurt): hosts the EU PlanetScale DB read path on
+# the same continent; UK users route to fra via anycast until lhr is added.
+
+app = "resolvezero-edge"
+primary_region = "fra"
+# Give SIGTERM drain (DNS stop → batcher → S3 flush) time to finish.
+kill_timeout = 30
+
+[build]
+  dockerfile = "Dockerfile.edge-rust"
+
+[deploy]
+  # Fly starts a new set, waits for health, then cuts over; CI rolls back the
+  # previous image if the post-deploy smoke checks fail.
+  strategy = "bluegreen"
+
+# Rust edge (apps/edge-rust). Binds 53/853 as root, then drops to UID/GID 1000.
+# Production shape: 2 shared cores + 512 MB. The Rust edge runs at ~14-20 MB
+# RSS with artifacts loaded; 512 MB leaves >300 MB for the 50 MB DNS cache,
+# log buffers, and a raw-text parse fallback, while the second core keeps the
+# async workers free during list syncs and cache misses.
+[vm]
+  cpu_kind = "shared"
+  cpus = 2
+  memory = "512mb"
+
+[env]
+  PORT = "8080"
+  LOG_LEVEL = "info"
+  # Archive objects are exposed by the logs API; one object per profile per
+  # minute keeps console lag near 1–2 min. Object storage ops are free on our
+  # provider; the logs API only lists the last two UTC days for "latest".
+  S3_FLUSH_MINUTES = "1"
+  # Raw-log persistence is the in-process S3 sink (S3_* secrets in Fly).
+  # Flip to QUERY_LOG_STDOUT=1 + Fly Log Shipper instead if ever preferred.
+  # Secrets (set once, shared by all regions):
+  #   DATABASE_URL           — app role (EU PlanetScale)
+  #   S3_*                   — iDrive E2 eu-central-1 archive bucket
+  #   UPSTREAM_DOH_URL       — optional (default preset)
+
+[http_service]
+  # DoH + stats + logs API (TLS terminated by Fly)
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # anycast keep-warm: a stopped machine drops out of BGP
+  auto_start_machines = false  # no UDP wake-up exists; keep machines warm
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/healthz"
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "120s"   # first boot may fetch/parse remote lists
+    method = "GET"
+    path = "/readyz"
+
+# Private Prometheus scrape port (not exposed via http_service/[[services]]).
+[metrics]
+  port = 9091
+  path = "/metrics"
+  processes = ["app"]
+
+# Port 53 ingress (Deco/router path, readme §6.4): UDP requires a dedicated
+# IPv4 (we have three: dns/dns1/dns2). The edge binds fly-global-services:53
+# itself; internal and external ports must match — Fly does not rewrite
+# ports for UDP.
+[[services]]
+  protocol = "tcp"
+  internal_port = 53
+  [[services.ports]]
+    port = 53
+    # Preserve the client IP for IPv4 source-IP auth (UDP gets it natively
+    # via fly-global-services; raw TCP would otherwise see the proxy).
+    handlers = ["proxy_proto"]
+
+  [[services.tcp_checks]]
+    grace_period = "10s"
+    interval = "15s"
+    timeout = "2s"
+
+[[services]]
+  protocol = "udp"
+  internal_port = 53
+  [[services.ports]]
+    port = 53
+
+# DNS-over-TLS (Android Private DNS, iOS/macOS TLS profiles).
+# TLS is terminated by Fly's proxy using the app's certificates; the PROXY v2
+# header carries the client address and the SNI authority TLV, which the app
+# maps to a profile. No TLS code or private keys in the app.
+[[services]]
+  protocol = "tcp"
+  internal_port = 853
+
+  [[services.ports]]
+    port = 853
+    handlers = ["tls", "proxy_proto"]
+    proxy_proto_options = { version = "v2" }
+    tls_options = { versions = ["TLSv1.2", "TLSv1.3"] }

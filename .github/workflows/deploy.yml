@@ -1,0 +1,173 @@
+# resolvezero CI/CD — push to main builds, tests, migrates, deploys.
+# Docs: readme.md §7 (Pipeline). MR-only enforcement flips on at
+# productionalization (same checklist as hosted launch).
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: typecheck (edge)
+        run: pnpm exec tsc -p apps/edge
+      - name: typecheck (db)
+        run: pnpm exec tsc -p packages/db
+      - name: tests
+        run: pnpm test
+
+  migrate:
+    name: migrate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: install
+        run: pnpm install --frozen-lockfile
+      - name: migrate (drizzle + version triggers, idempotent)
+        run: pnpm exec tsx apps/edge/scripts/migrate.ts
+        env:
+          DATABASE_URL_ADMIN: ${{ secrets.DATABASE_URL_ADMIN }}
+
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: migrate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: capture current edge image (rollback target)
+        run: |
+          FLYBIN=flyctl
+          command -v flyctl >/dev/null 2>&1 || FLYBIN=fly
+          image=$($FLYBIN releases --image -a resolvezero-edge --json \
+            | jq -r '[.[] | select(.Status == "complete" and .ImageRef != "")][0].ImageRef // empty')
+          echo "PREVIOUS_EDGE_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "rollback target: ${image:-<none>}"
+      - name: deploy (fra + lhr, warm machines)
+        run: ./scripts/deploy.sh
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_REGIONS: fra lhr
+          FLY_SCALE: 1
+          FLY_STRATEGY: bluegreen
+      - name: smoke — post-deploy healthz gate
+        run: |
+          sleep 20
+          code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 https://resolvezero-edge.fly.dev/healthz)
+          echo "healthz: $code"
+          if [ "$code" != "204" ]; then
+            echo "::error::edge failed post-deploy health check (Code $code) — see fly logs / machine state"
+            exit 1
+          fi
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.2.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: install (for smoke script)
+        run: pnpm install --frozen-lockfile
+      - name: install dnsutils (dig)
+        run: sudo apt-get update && sudo apt-get install -y dnsutils
+      - name: smoke — DNS 53 + DoH forward/sinkhole/zone
+        env:
+          DATABASE_URL_ADMIN: ${{ secrets.DATABASE_URL_ADMIN }}
+          EDGE_IP: 37.16.24.46
+        run: pnpm exec tsx apps/edge/scripts/smoke-edge.ts
+
+      - name: parity — all machines healthy on one image
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          # Guards against the "running multiple images" drift (readme §7):
+          # machines wedged on a dead host bypass deploys silently.
+          # Schema verified live: .image_ref.tag, .checks[].status, .host_status
+          FLYBIN=flyctl
+          command -v flyctl >/dev/null 2>&1 || FLYBIN=fly
+          json=$($FLYBIN machines list -a resolvezero-edge --json)
+          echo "$json" | jq -r '.[] | [.id, .region, .image_ref.tag, (.checks[0].status // "none"), .host_status] | @tsv'
+          images=$(echo "$json" | jq -r '[.[] | .image_ref.tag] | unique | length')
+          unhealthy=$(echo "$json" | jq -r '[.[] | select((.host_status // "ok") != "ok" or ((.checks // []) | length == 0) or ((.checks // []) | any(.status == "error")))] | length')
+          if [ "$images" != "1" ]; then
+            echo "::error::machine image drift ($images distinct images)"
+            exit 1
+          fi
+          if [ "$unhealthy" != "0" ]; then
+            echo "::error::$unhealthy unhealthy machine(s) after deploy"
+            exit 1
+          fi
+
+      - name: rollback edge on failure
+        if: failure() && env.PREVIOUS_EDGE_IMAGE != ''
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          echo "::warning::post-deploy checks failed; rolling back edge to $PREVIOUS_EDGE_IMAGE"
+          flyctl deploy --config fly.toml --image "$PREVIOUS_EDGE_IMAGE" --strategy bluegreen --yes
+          sleep 10
+          code=$(curl -s -o /dev/null -w '%{http_code}' -m 15 https://resolvezero-edge.fly.dev/healthz || echo 000)
+          echo "rollback healthz: $code"
+          if [ "$code" != "204" ]; then
+            echo "::error::edge rollback also failed (healthz $code)"
+            exit 1
+          fi
+
+  deploy-console:
+    name: deploy console
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: migrate
+    # Opt-in until the Fly app and its secrets exist:
+    #   gh variable set DEPLOY_CONSOLE --body true
+    if: vars.DEPLOY_CONSOLE == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - name: deploy (fra, one machine)
+        run: flyctl deploy --config fly.console.toml --remote-only --ha=false
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      - name: smoke — console healthz
+        run: |
+          for i in $(seq 1 24); do
+            if curl -fsS -m 10 https://resolvezero-console.fly.dev/healthz | grep -q '"ok":true'; then
+              echo "console healthy"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::console failed the post-deploy health check"
+          exit 1

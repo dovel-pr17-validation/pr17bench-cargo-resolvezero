@@ -1,0 +1,29 @@
+{
+  "name": "@resolvezero/agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local DNS-to-DoH forwarder for ResolveZero",
+  "bin": {
+    "resolvezero-agent": "./dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "bun build --compile src/index.ts --outfile dist/resolvezero-agent",
+    "build:linux-x64": "bun build --compile --target=bun-linux-x64 src/index.ts --outfile dist/resolvezero-agent-linux-x64",
+    "build:linux-arm64": "bun build --compile --target=bun-linux-arm64 src/index.ts --outfile dist/resolvezero-agent-linux-arm64",
+    "build:darwin-arm64": "bun build --compile --target=bun-darwin-arm64 src/index.ts --outfile dist/resolvezero-agent-darwin-arm64"
+  },
+  "dependencies": {
+    "dns-packet": "^5.6.1"
+  },
+  "devDependencies": {
+    "@types/dns-packet": "^5.6.5",
+    "tsx": "^4.19.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
