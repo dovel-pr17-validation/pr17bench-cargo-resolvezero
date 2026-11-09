@@ -6,7 +6,7 @@ description = "ResolveZero DNS edge — Rust rewrite of apps/edge (WIP, not depl
 license = "MIT"
 
 [dependencies]
-axum = "0.7"
+axum = "0.8"
 base64 = "0.22"
 bytes = "1"
 hickory-proto = "0.26"
