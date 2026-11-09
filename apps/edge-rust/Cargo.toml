@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 axum = "0.7"
-base64 = "0.22"
+base64 = "0.23"
 bytes = "1"
 hickory-proto = "0.26"
 flate2 = "1"
