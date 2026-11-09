@@ -12,7 +12,7 @@ bytes = "1"
 hickory-proto = "0.26"
 flate2 = "1"
 futures-util = "0.3"
-hmac = "0.12"
+hmac = "0.13"
 sha2 = "0.10"
 subtle = "2"
 time = { version = "0.3", features = ["formatting", "macros"] }
